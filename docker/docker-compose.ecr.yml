@@ -1,0 +1,61 @@
+version: '3.8'
+services:
+  datahub-gms:
+    build:
+      context: ../
+      dockerfile: docker/datahub-gms/Dockerfile
+    image: ${REPOSITORY_URI_SERVER}/datahub/datahub-gms:${DATAHUB_VERSION:-head}
+    hostname: datahub-gms
+    container_name: datahub-gms
+    ports:
+      - "8080:8080"
+
+  datahub-frontend-react:
+    build:
+      context: ../
+      dockerfile: docker/datahub-frontend/Dockerfile
+    image: ${REPOSITORY_URI_SERVER}/datahub/datahub-frontend-react:${DATAHUB_VERSION:-head}
+    env_file: datahub-frontend/env/docker.env
+    hostname: datahub-frontend-react
+    container_name: datahub-frontend-react
+    ports:
+      - "9002:9002"
+
+  datahub-upgrade:
+    build:
+      context: ../
+      dockerfile: docker/datahub-upgrade/Dockerfile
+    image: ${REPOSITORY_URI_SERVER}/datahub/datahub-upgrade:${DATAHUB_VERSION:-head}
+    env_file: datahub-upgrade/env/docker.env
+    hostname: datahub-upgrade
+    container_name: datahub-upgrade
+
+  kafka-setup:
+    build:
+      context: kafka-setup
+    image: ${REPOSITORY_URI_SERVER}/datahub/datahub-kafka-setup:${DATAHUB_VERSION:-head}
+    env_file: kafka-setup/env/docker.env
+    hostname: kafka-setup
+    container_name: kafka-setup
+
+  elasticsearch-setup:
+    build:
+      context: ../
+      dockerfile: docker/elasticsearch-setup/Dockerfile
+    image: ${REPOSITORY_URI_SERVER}/datahub/datahub-elasticsearch-setup:${DATAHUB_VERSION:-head}
+    env_file: elasticsearch-setup/env/docker.env
+    hostname: elasticsearch-setup
+    container_name: elasticsearch-setup
+
+  mysql-setup:
+    build:
+      context: ../
+      dockerfile: docker/mysql-setup/Dockerfile
+    image: ${REPOSITORY_URI_SERVER}/datahub/datahub-mysql-setup:${DATAHUB_VERSION:-head}
+    env_file: mysql-setup/env/docker.env
+    hostname: mysql-setup
+    container_name: mysql-setup
+
+networks:
+  default:
+    name: datahub_network
