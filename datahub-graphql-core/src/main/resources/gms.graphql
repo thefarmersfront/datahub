@@ -500,7 +500,13 @@ type GlossaryTermInfo {
     Properties of the glossary term
     """
     customProperties: [StringMapEntry!]
+
+    """
+    Schema definition of glossary term
+    """
+    rawSchema: String
 }
+
 
 type DataPlatform implements Entity {
     """
@@ -939,7 +945,7 @@ type DownstreamEntityRelationships {
 type DataFlowDataJobsRelationships {
     entities: [EntityRelationshipLegacy]
 }
-
+ 
 type UpstreamLineage {
     """
     List of upstream datasets
@@ -1153,7 +1159,7 @@ type CorpUserInfo {
     """
     Email address of the user
     """
-    email: String!
+    email: String
 
     """
     Title of the user
@@ -1260,7 +1266,7 @@ type CorpGroupInfo {
     """
     email of this group
     """
-    email: String!
+    email: String
 
     """
     owners of this group
@@ -3247,4 +3253,3 @@ type DatasetProfile implements TimeSeriesAspect {
   fieldProfiles: [DatasetFieldProfile!]
   partitionSpec: PartitionSpec
 }
-
