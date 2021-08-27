@@ -33,5 +33,5 @@ kafka-topics --create --if-not-exists --command-config $CONNECTION_PROPERTIES_PA
 
 # Create topic for datahub usage event
 if [[ $DATAHUB_ANALYTICS_ENABLED == true ]]; then
-  kafka-topics --create --if-not-exists --command-config $CONNECTION_PROPERTIES_PATH --bootstrap-server $KAFKA_ZOOKEEPER_CONNECT --partitions $PARTITIONS --replication-factor $REPLICATION_FACTOR --topic $DATAHUB_USAGE_EVENT_NAME
+  kafka-topics --create --if-not-exists --command-config $CONNECTION_PROPERTIES_PATH --bootstrap-server $KAFKA_BOOTSTRAP_SERVER --partitions $PARTITIONS --replication-factor $REPLICATION_FACTOR --topic $DATAHUB_USAGE_EVENT_NAME
 fi
