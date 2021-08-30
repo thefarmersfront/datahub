@@ -34,6 +34,7 @@ fi
 
 dockerize \
   -wait tcp://$EBEAN_DATASOURCE_HOST \
+  -wait $ELASTICSEARCH_PROTOCOL://$ELASTICSEARCH_HOST_URL:$ELASTICSEARCH_PORT -wait-http-header "$ELASTICSEARCH_AUTH_HEADER" \
   -wait tcp://$(echo $KAFKA_BOOTSTRAP_SERVER | sed 's/,/ -wait tcp:\/\//g') \
   $WAIT_FOR_NEO4J \
   -timeout 240s \
