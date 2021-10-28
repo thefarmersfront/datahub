@@ -1,6 +1,9 @@
 connection: "my_connection"
 
 include: "foo.view.lkml"
+include: "bar.view.lkml"
+include: "nested/*"
+include: "liquid.view.lkml"
 
 explore: aliased_explore {
   from: my_view

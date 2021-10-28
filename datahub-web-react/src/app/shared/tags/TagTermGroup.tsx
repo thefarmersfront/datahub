@@ -5,7 +5,7 @@ import styled from 'styled-components';
 import { BookOutlined, PlusOutlined } from '@ant-design/icons';
 
 import { useEntityRegistry } from '../../useEntityRegistry';
-import { EntityType, GlobalTags, GlossaryTerms } from '../../../types.generated';
+import { EntityType, GlobalTags, GlossaryTerms, SubResourceType } from '../../../types.generated';
 import AddTagTermModal from './AddTagTermModal';
 import { StyledTag } from '../../entity/shared/components/styled/StyledTag';
 import { EMPTY_MESSAGES } from '../../entity/shared/constants';
@@ -84,8 +84,9 @@ export default function TagTermGroup({
                         variables: {
                             input: {
                                 tagUrn: urnToRemove,
-                                targetUrn: entityUrn,
+                                resourceUrn: entityUrn,
                                 subResource: entitySubresource,
+                                subResourceType: entitySubresource ? SubResourceType.DatasetField : null,
                             },
                         },
                     })
@@ -120,8 +121,9 @@ export default function TagTermGroup({
                         variables: {
                             input: {
                                 termUrn: urnToRemove,
-                                targetUrn: entityUrn,
+                                resourceUrn: entityUrn,
                                 subResource: entitySubresource,
+                                subResourceType: entitySubresource ? SubResourceType.DatasetField : null,
                             },
                         },
                     })
@@ -149,10 +151,7 @@ export default function TagTermGroup({
     return (
         <TagWrapper>
             {uneditableGlossaryTerms?.terms?.map((term) => (
-                <TagLink
-                    to={`/${entityRegistry.getPathName(EntityType.GlossaryTerm)}/${term.term.urn}`}
-                    key={term.term.urn}
-                >
+                <TagLink to={entityRegistry.getEntityUrl(EntityType.GlossaryTerm, term.term.urn)} key={term.term.urn}>
                     <Tag closable={false}>
                         {term.term.name}
                         <BookOutlined style={{ marginLeft: '2%' }} />
@@ -160,10 +159,7 @@ export default function TagTermGroup({
                 </TagLink>
             ))}
             {editableGlossaryTerms?.terms?.map((term) => (
-                <TagLink
-                    to={`/${entityRegistry.getPathName(EntityType.GlossaryTerm)}/${term.term.urn}`}
-                    key={term.term.urn}
-                >
+                <TagLink to={entityRegistry.getEntityUrl(EntityType.GlossaryTerm, term.term.urn)} key={term.term.urn}>
                     <Tag
                         closable={canRemove}
                         onClose={(e) => {
@@ -181,7 +177,7 @@ export default function TagTermGroup({
                 renderedTags += 1;
                 if (maxShow && renderedTags > maxShow) return null;
                 return (
-                    <TagLink to={`/${entityRegistry.getPathName(EntityType.Tag)}/${tag.tag.urn}`} key={tag.tag.urn}>
+                    <TagLink to={entityRegistry.getEntityUrl(EntityType.Tag, tag.tag.urn)} key={tag.tag.urn}>
                         <StyledTag $colorHash={tag.tag.urn} closable={false}>
                             {tag.tag.name}
                         </StyledTag>
@@ -193,7 +189,7 @@ export default function TagTermGroup({
                 renderedTags += 1;
                 if (maxShow && renderedTags > maxShow) return null;
                 return (
-                    <TagLink to={`/${entityRegistry.getPathName(EntityType.Tag)}/${tag.tag.urn}`} key={tag.tag.urn}>
+                    <TagLink to={entityRegistry.getEntityUrl(EntityType.Tag, tag.tag.urn)} key={tag.tag.urn}>
                         <StyledTag
                             $colorHash={tag.tag.urn}
                             closable={canRemove}

@@ -126,6 +126,7 @@ const hardcoded_titles = {
 const sidebarsjs_hardcoded_titles = [
   "metadata-ingestion/README.md",
   "metadata-ingestion/source_docs/s3.md",
+  "docs/api/graphql/overview.md",
 ];
 const hardcoded_hide_title = ["README.md"];
 
@@ -301,7 +302,7 @@ function markdown_rewrite_urls(
       //
       // We do a little bit of parenthesis matching here to account for parens in URLs.
       // See https://stackoverflow.com/a/17759264 for explanation of the second capture group.
-      /\[(.+?)\]\(((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*)\)/g,
+      /\[(.*?)\]\(((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*)\)/g,
       (_, text, url) => {
         const updated = new_url(url.trim(), filepath);
         return `[${text}](${updated})`;
