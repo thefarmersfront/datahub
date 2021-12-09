@@ -8,6 +8,7 @@ from unittest.mock import patch
 # This import verifies that the dependencies are available.
 import pybigquery  # noqa: F401
 import pybigquery.sqlalchemy_bigquery
+import pydantic
 from google.cloud.logging_v2.client import Client as GCPLoggingClient
 from sqlalchemy.engine.reflection import Inspector
 
@@ -24,7 +25,6 @@ from datahub.ingestion.source.sql.sql_common import (
 )
 from datahub.ingestion.source.usage.bigquery_usage import (
     BQ_DATETIME_FORMAT,
-    GCP_LOGGING_PAGE_SIZE,
     AuditLogEntry,
     BigQueryTableRef,
     QueryEvent,
@@ -85,6 +85,8 @@ assert pybigquery.sqlalchemy_bigquery._type_map
 class BigQueryConfig(BaseTimeWindowConfig, SQLAlchemyConfig):
     scheme: str = "bigquery"
     project_id: Optional[str] = None
+
+    log_page_size: Optional[pydantic.PositiveInt] = 1000
     # extra_client_options, include_table_lineage and max_query_duration are relevant only when computing the lineage.
     extra_client_options: Dict[str, Any] = {}
     include_table_lineage: Optional[bool] = True
@@ -150,7 +152,7 @@ class BigQuerySource(SQLAlchemySource):
         logger.debug("Start loading log entries from BigQuery")
         for client in clients:
             yield from client.list_entries(
-                filter_=filter, page_size=GCP_LOGGING_PAGE_SIZE
+                filter_=filter, page_size=self.config.log_page_size
             )
         logger.debug("finished loading log entries from BigQuery")
 
@@ -185,8 +187,8 @@ class BigQuerySource(SQLAlchemySource):
             ):
                 continue
             for ref_table in e.referencedTables:
-                destination_table_str = str(e.destinationTable)
-                ref_table_str = str(ref_table)
+                destination_table_str = str(e.destinationTable.remove_extras())
+                ref_table_str = str(ref_table.remove_extras())
                 if ref_table_str != destination_table_str:
                     lineage_map[destination_table_str].add(ref_table_str)
         return lineage_map
@@ -273,8 +275,6 @@ class BigQuerySource(SQLAlchemySource):
         return dict(
             schema=self.config.project_id,
             table=f"{schema}.{table}",
-            limit=self.config.profiling.limit,
-            offset=self.config.profiling.offset,
         )
 
     @staticmethod
@@ -294,7 +294,14 @@ class BigQuerySource(SQLAlchemySource):
     ) -> str:
         assert inspector
         project_id = self._get_project_id(inspector)
-        return f"{project_id}.{schema}.{entity}"
+        trimmed_table_name = (
+            BigQueryTableRef.from_spec_obj(
+                {"projectId": project_id, "datasetId": schema, "tableId": entity}
+            )
+            .remove_extras()
+            .table
+        )
+        return f"{project_id}.{schema}.{trimmed_table_name}"
 
     def standardize_schema_table_names(
         self, schema: str, entity: str

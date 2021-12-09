@@ -1,5 +1,4 @@
 import logging
-import os
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import (
@@ -19,14 +18,10 @@ from urllib.parse import quote_plus
 import pydantic
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine.reflection import Inspector
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.sql import sqltypes as types
 
-from datahub import __package_name__
-from datahub.configuration.common import (
-    AllowDenyPattern,
-    ConfigModel,
-    ConfigurationError,
-)
+from datahub.configuration.common import AllowDenyPattern, ConfigModel
 from datahub.emitter.mce_builder import DEFAULT_ENV
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.common import PipelineContext
@@ -52,6 +47,7 @@ from datahub.metadata.com.linkedin.pegasus2avro.schema import (
     TimeTypeClass,
 )
 from datahub.metadata.schema_classes import ChangeTypeClass, DatasetPropertiesClass
+from datahub.utilities.sqlalchemy_query_combiner import SQLAlchemyQueryCombinerReport
 
 if TYPE_CHECKING:
     from datahub.ingestion.source.ge_data_profiler import (
@@ -129,6 +125,8 @@ class SQLSourceReport(SourceReport):
     views_scanned: int = 0
     filtered: List[str] = field(default_factory=list)
 
+    query_combiner: Optional[SQLAlchemyQueryCombinerReport] = None
+
     def report_entity_scanned(self, name: str, ent_type: str = "table") -> None:
         """
         Entity could be a view or a table
@@ -143,18 +141,10 @@ class SQLSourceReport(SourceReport):
     def report_dropped(self, ent_name: str) -> None:
         self.filtered.append(ent_name)
 
-
-class GEProfilingConfig(ConfigModel):
-    enabled: bool = False
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    send_sample_values: bool = True
-
-    # The default of (5 * cpu_count) is adopted from the default max_workers
-    # parameter of ThreadPoolExecutor. Given that profiling is often an I/O-bound
-    # task, it may make sense to increase this default value in the future.
-    # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
-    max_workers: int = 5 * (os.cpu_count() or 4)
+    def report_from_query_combiner(
+        self, query_combiner_report: SQLAlchemyQueryCombinerReport
+    ) -> None:
+        self.query_combiner = query_combiner_report
 
 
 class SQLAlchemyConfig(ConfigModel):
@@ -172,7 +162,18 @@ class SQLAlchemyConfig(ConfigModel):
     include_views: Optional[bool] = True
     include_tables: Optional[bool] = True
 
+    from datahub.ingestion.source.ge_data_profiler import GEProfilingConfig
+
     profiling: GEProfilingConfig = GEProfilingConfig()
+
+    @pydantic.root_validator()
+    def ensure_profiling_pattern_is_passed_to_profiling(
+        cls, values: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        profiling = values.get("profiling")
+        if profiling is not None and profiling.enabled:
+            profiling.allow_deny_patterns = values["profile_pattern"]
+        return values
 
     @abstractmethod
     def get_sql_alchemy_url(self):
@@ -316,12 +317,6 @@ class SQLAlchemySource(Source):
         self.platform = platform
         self.report = SQLSourceReport()
 
-        if self.config.profiling.enabled and not self._can_run_profiler():
-            raise ConfigurationError(
-                "Table profiles requested but profiler plugin is not enabled. "
-                f"Try running: pip install '{__package_name__}[sql-profiles]'"
-            )
-
     def get_inspectors(self) -> Iterable[Inspector]:
         # This method can be overridden in the case that you want to dynamically
         # run on multiple databases.
@@ -400,12 +395,12 @@ class SQLAlchemySource(Source):
         )
 
         source_fields = [
-            f"urn:li:schemaField:({datasetUrn}, {f})"
+            f"urn:li:schemaField:({datasetUrn},{f})"
             for f in fk_dict["constrained_columns"]
         ]
         foreign_dataset = f"urn:li:dataset:(urn:li:dataPlatform:{self.platform},{referred_dataset_name},{self.config.env})"
         foreign_fields = [
-            f"urn:li:schemaField:({foreign_dataset}, {f})"
+            f"urn:li:schemaField:({foreign_dataset},{f})"
             for f in fk_dict["referred_columns"]
         ]
 
@@ -432,9 +427,17 @@ class SQLAlchemySource(Source):
                 self.report.report_dropped(dataset_name)
                 continue
 
-            columns = inspector.get_columns(table, schema)
-            if len(columns) == 0:
-                self.report.report_warning(dataset_name, "missing column information")
+            try:
+                columns = inspector.get_columns(table, schema)
+                if len(columns) == 0:
+                    self.report.report_warning(
+                        dataset_name, "missing column information"
+                    )
+            except Exception as e:
+                self.report.report_warning(
+                    dataset_name,
+                    f"unable to get column information due to an error -> {e}",
+                )
 
             try:
                 # SQLALchemy stubs are incomplete and missing this method.
@@ -443,6 +446,15 @@ class SQLAlchemySource(Source):
             except NotImplementedError:
                 description: Optional[str] = None
                 properties: Dict[str, str] = {}
+            except ProgrammingError as pe:
+                # Snowflake needs schema names quoted when fetching table comments.
+                logger.debug(
+                    f"Encountered ProgrammingError. Retrying with quoted schema name for schema {schema} and table {table}",
+                    pe,
+                )
+                description = None
+                properties = {}
+                table_info: dict = inspector.get_table_comment(table, f'"{schema}"')  # type: ignore
             else:
                 description = table_info["text"]
 
@@ -608,20 +620,12 @@ class SQLAlchemySource(Source):
             self.report.report_workunit(wu)
             yield wu
 
-    def _can_run_profiler(self) -> bool:
-        try:
-            from datahub.ingestion.source.ge_data_profiler import (  # noqa: F401
-                DatahubGEProfiler,
-            )
-
-            return True
-        except Exception:
-            return False
-
     def _get_profiler_instance(self, inspector: Inspector) -> "DatahubGEProfiler":
         from datahub.ingestion.source.ge_data_profiler import DatahubGEProfiler
 
-        return DatahubGEProfiler(conn=inspector.bind, report=self.report)
+        return DatahubGEProfiler(
+            conn=inspector.bind, report=self.report, config=self.config.profiling
+        )
 
     def loop_profiler_requests(
         self,
@@ -647,7 +651,6 @@ class SQLAlchemySource(Source):
             yield GEProfilerRequest(
                 pretty_name=dataset_name,
                 batch_kwargs=self.prepare_profiler_args(schema=schema, table=table),
-                send_sample_values=self.config.profiling.send_sample_values,
             )
 
     def loop_profiler(
@@ -656,6 +659,8 @@ class SQLAlchemySource(Source):
         for request, profile in profiler.generate_profiles(
             profile_requests, self.config.profiling.max_workers
         ):
+            if profile is None:
+                continue
             dataset_name = request.pretty_name
             mcp = MetadataChangeProposalWrapper(
                 entityType="dataset",
@@ -672,8 +677,6 @@ class SQLAlchemySource(Source):
         return dict(
             schema=schema,
             table=table,
-            limit=self.config.profiling.limit,
-            offset=self.config.profiling.offset,
         )
 
     def get_report(self):
