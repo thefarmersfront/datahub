@@ -14,8 +14,6 @@ services:
     build:
       context: ../
       dockerfile: docker/datahub-frontend/Dockerfile
-      args:
-        BUILDPLATFORM: linux/amd64
     image: ${REPOSITORY_URI_SERVER}/datahub/datahub-frontend-react:${DATAHUB_VERSION:-head}
     env_file: datahub-frontend/env/docker.env
     hostname: datahub-frontend-react
