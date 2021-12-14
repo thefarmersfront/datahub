@@ -1,9 +1,5 @@
 version: 0.2
 
-env:
-  variables:
-    DOCKER_BUILDKIT: "1"
-
 phases:
   install:
     runtime-versions:
@@ -25,7 +21,7 @@ phases:
       - echo Entered the build phase...
       - echo Building the Docker image...
       - cd docker
-      - docker-compose -f docker-compose.ecr.yml build
+      - DOCKER_BUILDKIT=1 docker-compose -f docker-compose.ecr.yml build
   post_build:
     commands:
       - echo Entered the post_build phase...
