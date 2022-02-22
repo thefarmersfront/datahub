@@ -114,10 +114,12 @@ Here are the companies that have officially adopted DataHub. Please feel free to
 - [Experius](https://www.experius.nl)
 - [Geotab](https://www.geotab.com)
 - [Grofers](https://grofers.com)
+- [Haibo Technology](https://www.botech.com.cn)
 - [hipages](https://hipages.com.au/)
 - [IOMED](https://iomed.health)
 - [Klarna](https://www.klarna.com)
 - [LinkedIn](http://linkedin.com)
+- [Moloco](https://www.moloco.com/en)
 - [Peloton](https://www.onepeloton.com)
 - [Saxo Bank](https://www.home.saxo)
 - [Stash](https://www.stash.com)
@@ -127,6 +129,8 @@ Here are the companies that have officially adopted DataHub. Please feel free to
 - [Uphold](https://uphold.com)
 - [Viasat](https://viasat.com)
 - [Wolt](https://wolt.com)
+- [Zynga](https://www.zynga.com)
+
 
 ## Select Articles & Talks
 
