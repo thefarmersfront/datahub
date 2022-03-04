@@ -21,6 +21,10 @@ import NoMarkdownViewer from '../entity/shared/components/styled/StripMarkdownTe
 import { getNumberWithOrdinal } from '../entity/shared/utils';
 import { useEntityData } from '../entity/shared/EntityContext';
 
+const LogoContainer = styled.div`
+    padding-right: 8px;
+`;
+
 const PreviewContainer = styled.div`
     display: flex;
     width: 100%;
@@ -36,7 +40,8 @@ const PlatformInfo = styled.div`
 `;
 
 const TitleContainer = styled.div`
-    margin-bottom: 8px;
+    margin-bottom: 0px;
+    line-height: 30px;
 `;
 
 const PreviewImage = styled(Image)`
@@ -49,7 +54,7 @@ const PreviewImage = styled(Image)`
 
 const EntityTitle = styled(Typography.Text)<{ $titleSizePx?: number }>`
     &&& {
-        margin-bottom: 0;
+        margin-right 8px;
         font-size: ${(props) => props.$titleSizePx || 16}px;
         font-weight: 600;
         vertical-align: middle;
@@ -91,7 +96,7 @@ const AvatarContainer = styled.div`
 
 const TagContainer = styled.div`
     display: inline-block;
-    margin-left: 8px;
+    margin-left: 0px;
     margin-top: -2px;
 `;
 
@@ -200,8 +205,9 @@ export default function DefaultPreviewCard({
                 <TitleContainer>
                     <Link to={url}>
                         <PlatformInfo>
-                            {(logoUrl && <PreviewImage preview={false} src={logoUrl} alt={platform || ''} />) ||
-                                logoComponent}
+                            {(logoUrl && <PreviewImage preview={false} src={logoUrl} alt={platform || ''} />) || (
+                                <LogoContainer>{logoComponent}</LogoContainer>
+                            )}
                             {platform && <PlatformText>{platform}</PlatformText>}
                             {(logoUrl || logoComponent || platform) && <PlatformDivider />}
                             {typeIcon && <TypeIcon>{typeIcon}</TypeIcon>}
