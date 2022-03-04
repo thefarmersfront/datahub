@@ -4,6 +4,8 @@ services:
     build:
       context: ../
       dockerfile: docker/datahub-gms/Dockerfile
+      args:
+        BUILDPLATFORM: linux/amd64,linux/arm64
     image: ${REPOSITORY_URI_SERVER}/datahub/datahub-gms:${DATAHUB_VERSION:-head}
     hostname: datahub-gms
     container_name: datahub-gms
