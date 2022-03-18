@@ -1,7 +1,7 @@
-package com.linkedin.metadata.graph;
+package com.linkedin.metadata.models.registry;
 
+import com.linkedin.metadata.graph.LineageDirection;
 import com.linkedin.metadata.models.annotation.RelationshipAnnotation;
-import com.linkedin.metadata.models.registry.EntityRegistry;
 import com.linkedin.metadata.query.filter.RelationshipDirection;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -52,14 +52,14 @@ public class LineageRegistry {
     // A produces B :     A -> downstream (produces, OUTGOING), B -> upstream (produces, INCOMING)
     for (LineageEdge edge : lineageEdges) {
       if (edge.isUpstream()) {
-        upstreamPerEntity.computeIfAbsent(edge.sourceEntity, (k) -> new HashSet<>())
+        upstreamPerEntity.computeIfAbsent(edge.sourceEntity.toLowerCase(), (k) -> new HashSet<>())
             .add(new EdgeInfo(edge.type, RelationshipDirection.OUTGOING));
-        downstreamPerEntity.computeIfAbsent(edge.destEntity, (k) -> new HashSet<>())
+        downstreamPerEntity.computeIfAbsent(edge.destEntity.toLowerCase(), (k) -> new HashSet<>())
             .add(new EdgeInfo(edge.type, RelationshipDirection.INCOMING));
       } else {
-        downstreamPerEntity.computeIfAbsent(edge.sourceEntity, (k) -> new HashSet<>())
+        downstreamPerEntity.computeIfAbsent(edge.sourceEntity.toLowerCase(), (k) -> new HashSet<>())
             .add(new EdgeInfo(edge.type, RelationshipDirection.OUTGOING));
-        upstreamPerEntity.computeIfAbsent(edge.destEntity, (k) -> new HashSet<>())
+        upstreamPerEntity.computeIfAbsent(edge.destEntity.toLowerCase(), (k) -> new HashSet<>())
             .add(new EdgeInfo(edge.type, RelationshipDirection.INCOMING));
       }
     }
@@ -91,7 +91,7 @@ public class LineageRegistry {
     if (spec == null) {
       return Collections.emptyList();
     }
-    
+
     if (direction == LineageDirection.UPSTREAM) {
       return spec.getUpstreamEdges();
     }
