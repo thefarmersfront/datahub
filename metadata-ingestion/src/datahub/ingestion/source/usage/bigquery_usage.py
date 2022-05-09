@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import textwrap
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Union, cast
@@ -19,6 +20,12 @@ import datahub.emitter.mce_builder as builder
 from datahub.configuration.time_window_config import get_time_bucket
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.common import PipelineContext
+from datahub.ingestion.api.decorators import (
+    SupportStatus,
+    config_class,
+    platform_name,
+    support_status,
+)
 from datahub.ingestion.api.source import Source
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.ingestion.source.usage.usage_common import GenericAggregatedDataset
@@ -67,11 +74,13 @@ BQ_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 BQ_DATE_SHARD_FORMAT = "%Y%m%d"
 BQ_AUDIT_V1 = {
     "BQ_FILTER_REGEX_ALLOW_TEMPLATE": """
-protoPayload.serviceData.jobCompletedEvent.job.jobStatistics.referencedTables.tableId =~ "{allow_pattern}"
+protoPayload.serviceData.jobCompletedEvent.job.jobStatistics.referencedTables.tableId =~ "{table_allow_pattern}"
+AND
+protoPayload.serviceData.jobCompletedEvent.job.jobStatistics.referencedTables.datasetId =~ "{dataset_allow_pattern}"
 """,
     "BQ_FILTER_REGEX_DENY_TEMPLATE": """
 {logical_operator}
-protoPayload.serviceData.jobCompletedEvent.job.jobStatistics.referencedTables.tableId !~ "{deny_pattern}"
+protoPayload.serviceData.jobCompletedEvent.job.jobStatistics.referencedTables.tableId !~ "{dataset_deny_pattern}"
 """,
     "BQ_FILTER_RULE_TEMPLATE": """
 protoPayload.serviceName="bigquery.googleapis.com"
@@ -106,11 +115,11 @@ timestamp < "{end_time}"
 
 BQ_AUDIT_V2 = {
     "BQ_FILTER_REGEX_ALLOW_TEMPLATE": """
-protoPayload.metadata.jobChange.job.jobStats.queryStats.referencedTables =~ "projects/.*/datasets/.*/tables/{allow_pattern}"
+protoPayload.metadata.jobChange.job.jobStats.queryStats.referencedTables =~ "projects/.*/datasets/{dataset_allow_pattern}/tables/{table_allow_pattern}"
 """,
     "BQ_FILTER_REGEX_DENY_TEMPLATE": """
 {logical_operator}
-protoPayload.metadata.jobChange.job.jobStats.queryStats.referencedTables !~ "projects/.*/datasets/.*/tables/{deny_pattern}"
+protoPayload.metadata.jobChange.job.jobStats.queryStats.referencedTables !~ "projects/.*/datasets/.*/tables/{table_deny_pattern}"
 """,
     "BQ_FILTER_RULE_TEMPLATE": """
 resource.type=("bigquery_project" OR "bigquery_dataset")
@@ -162,7 +171,8 @@ OPERATION_STATEMENT_TYPES = {
 def bigquery_audit_metadata_query_template(
     dataset: str,
     use_date_sharded_tables: bool,
-    table_allow_filter: str = None,
+    table_allow_filter: str,
+    dataset_allow_filter: str,
 ) -> str:
     """
     Receives a dataset (with project specified) and returns a query template that is used to query exported
@@ -170,14 +180,15 @@ def bigquery_audit_metadata_query_template(
     :param dataset: the dataset to query against in the form of $PROJECT.$DATASET
     :param use_date_sharded_tables: whether to read from date sharded audit log tables or time partitioned audit log
            tables
-    :param table_allow_filter: regex used to filter on log events that contain the wanted datasets
+    :param table_allow_filter: regex used to filter on log events that contain the wanted tables
+    :param dataset_allow_filter: regex used to filter on log events that contain wanted datasets
     :return: a query template, when supplied start_time and end_time, can be used to query audit logs from BigQuery
     """
     allow_filter = f"""
       AND EXISTS (SELECT *
               from UNNEST(JSON_EXTRACT_ARRAY(protopayload_auditlog.metadataJson,
                                              "$.jobChange.job.jobStats.queryStats.referencedTables")) AS x
-              where REGEXP_CONTAINS(x, r'(projects/.*/datasets/.*/tables/{table_allow_filter if table_allow_filter else ".*"})'))
+              where REGEXP_CONTAINS(x, r'(projects/.*/datasets/{dataset_allow_filter if dataset_allow_filter else ".*"}/tables/{table_allow_filter if table_allow_filter else ".*"})'))
     """
 
     query: str
@@ -253,9 +264,9 @@ class BigQueryTableRef:
             raise ValueError(f"invalid BigQuery table reference: {ref}")
         return cls(parts[1], parts[3], parts[5])
 
-    def is_temporary_table(self) -> bool:
+    def is_temporary_table(self, prefix: str) -> bool:
         # Temporary tables will have a dataset that begins with an underscore.
-        return self.dataset.startswith("_")
+        return self.dataset.startswith(prefix)
 
     def remove_extras(self) -> "BigQueryTableRef":
         # Handle partitioned and sharded tables.
@@ -608,7 +619,21 @@ def cleanup(config: BigQueryUsageConfig) -> None:
         os.unlink(config._credentials_path)
 
 
+@platform_name("BigQuery")
+@support_status(SupportStatus.CERTIFIED)
+@config_class(BigQueryUsageConfig)
 class BigQueryUsageSource(Source):
+    """
+    This plugin extracts the following:
+    * Statistics on queries issued and tables and columns accessed (excludes views)
+    * Aggregation of these statistics into buckets, by day or hour granularity
+
+    :::note
+    1. This source only does usage statistics. To get the tables, views, and schemas in your BigQuery project, use the `bigquery` plugin.
+    2. Depending on the compliance policies setup for the bigquery instance, sometimes logging.read permission is not sufficient. In that case, use either admin or private log viewer permission.
+    :::
+    """
+
     def __init__(self, config: BigQueryUsageConfig, ctx: PipelineContext):
         super().__init__(ctx)
         self.config: BigQueryUsageConfig = config
@@ -620,14 +645,18 @@ class BigQueryUsageSource(Source):
         config = BigQueryUsageConfig.parse_obj(config_dict)
         return cls(config, ctx)
 
+    # @staticmethod
+    # def get_config_class() -> Type[ConfigModel]:
+    #    return BigQueryUsageConfig
+
     def add_config_to_report(self):
         self.report.start_time = self.config.start_time
         self.report.end_time = self.config.end_time
         self.report.use_v2_audit_metadata = self.config.use_v2_audit_metadata
         self.report.query_log_delay = self.config.query_log_delay
         self.report.log_page_size = self.config.log_page_size
-        self.report.allow_pattern = self.config.get_allow_pattern_string()
-        self.report.deny_pattern = self.config.get_deny_pattern_string()
+        self.report.allow_pattern = self.config.get_table_allow_pattern_string()
+        self.report.deny_pattern = self.config.get_table_deny_pattern_string()
 
     def _is_table_allowed(self, table_ref: Optional[BigQueryTableRef]) -> bool:
         return (
@@ -724,7 +753,9 @@ class BigQueryUsageSource(Source):
                 list_entries: Iterable[
                     BigQueryAuditMetadata
                 ] = self._get_exported_bigquery_audit_metadata(
-                    client, self.config.get_allow_pattern_string()
+                    client,
+                    self.config.get_table_allow_pattern_string(),
+                    self.config.get_dataset_allow_pattern_string(),
                 )
                 list_entry_generators_across_clients.append(list_entries)
             except Exception as e:
@@ -750,7 +781,10 @@ class BigQueryUsageSource(Source):
         logger.info(f"Finished loading {i} log entries from BigQuery")
 
     def _get_exported_bigquery_audit_metadata(
-        self, bigquery_client: BigQueryClient, allow_filter: str
+        self,
+        bigquery_client: BigQueryClient,
+        table_allow_filter: str,
+        dataset_allow_filter: str,
     ) -> Iterable[BigQueryAuditMetadata]:
         if self.config.bigquery_audit_metadata_datasets is None:
             return
@@ -776,7 +810,10 @@ class BigQueryUsageSource(Source):
                 ).strftime(BQ_DATE_SHARD_FORMAT)
 
                 query = bigquery_audit_metadata_query_template(
-                    dataset, self.config.use_date_sharded_audit_log_tables, allow_filter
+                    dataset,
+                    self.config.use_date_sharded_audit_log_tables,
+                    table_allow_filter,
+                    dataset_allow_filter,
                 ).format(
                     start_time=start_time,
                     end_time=end_time,
@@ -785,9 +822,11 @@ class BigQueryUsageSource(Source):
                 )
             else:
                 query = bigquery_audit_metadata_query_template(
-                    dataset, self.config.use_date_sharded_audit_log_tables, allow_filter
+                    dataset,
+                    self.config.use_date_sharded_audit_log_tables,
+                    table_allow_filter,
+                    dataset_allow_filter,
                 ).format(start_time=start_time, end_time=end_time)
-
             query_job = bigquery_client.query(query)
             logger.info(
                 f"Finished loading log entries from BigQueryAuditMetadata in {dataset}"
@@ -813,21 +852,30 @@ class BigQueryUsageSource(Source):
         # completion event is delayed and happens after the configured end time.
 
         # Can safely access the first index of the allow list as it by default contains ".*"
-        use_allow_filter = self.config.table_pattern and (
-            len(self.config.table_pattern.allow) > 1
-            or self.config.table_pattern.allow[0] != ".*"
+        use_allow_filter = (
+            self.config.table_pattern
+            and (
+                len(self.config.table_pattern.allow) > 1
+                or self.config.table_pattern.allow[0] != ".*"
+            )
+            or self.config.dataset_pattern
+            and (
+                len(self.config.dataset_pattern.allow) > 1
+                or self.config.dataset_pattern.allow[0] != ".*"
+            )
         )
         use_deny_filter = self.config.table_pattern and self.config.table_pattern.deny
         allow_regex = (
             audit_templates["BQ_FILTER_REGEX_ALLOW_TEMPLATE"].format(
-                allow_pattern=self.config.get_allow_pattern_string()
+                table_allow_pattern=self.config.get_table_allow_pattern_string(),
+                dataset_allow_pattern=self.config.get_dataset_allow_pattern_string(),
             )
             if use_allow_filter
             else ""
         )
         deny_regex = (
             audit_templates["BQ_FILTER_REGEX_DENY_TEMPLATE"].format(
-                deny_pattern=self.config.get_deny_pattern_string(),
+                table_deny_pattern=self.config.get_table_deny_pattern_string(),
                 logical_operator="AND" if use_allow_filter else "",
             )
             if use_deny_filter
@@ -901,6 +949,7 @@ class BigQueryUsageSource(Source):
                     f"Failed to clean up destination table, {e}",
                 )
                 return None
+            reported_time: int = int(time.time() * 1000)
             last_updated_timestamp: int = int(event.timestamp.timestamp() * 1000)
             affected_datasets = []
             if event.referencedTables:
@@ -918,7 +967,7 @@ class BigQueryUsageSource(Source):
                             f"Failed to clean up table, {e}",
                         )
             operation_aspect = OperationClass(
-                timestampMillis=last_updated_timestamp,
+                timestampMillis=reported_time,
                 lastUpdatedTimestamp=last_updated_timestamp,
                 actor=builder.make_user_urn(event.actor_email.split("@")[0]),
                 operationType=OPERATION_STATEMENT_TYPES[event.statementType],
@@ -945,7 +994,8 @@ class BigQueryUsageSource(Source):
     ) -> Iterable[Union[ReadEvent, QueryEvent, MetadataWorkUnit]]:
         self.report.num_read_events = 0
         self.report.num_query_events = 0
-        self.report.num_filtered_events = 0
+        self.report.num_filtered_read_events = 0
+        self.report.num_filtered_query_events = 0
         for entry in entries:
             event: Optional[Union[ReadEvent, QueryEvent]] = None
 
@@ -953,7 +1003,7 @@ class BigQueryUsageSource(Source):
             if missing_read_entry is None:
                 event = ReadEvent.from_entry(entry)
                 if not self._is_table_allowed(event.resource):
-                    self.report.num_filtered_events += 1
+                    self.report.num_filtered_read_events += 1
                     continue
                 self.report.num_read_events += 1
 
@@ -961,7 +1011,7 @@ class BigQueryUsageSource(Source):
             if event is None and missing_query_entry is None:
                 event = QueryEvent.from_entry(entry)
                 if not self._is_table_allowed(event.destinationTable):
-                    self.report.num_filtered_events += 1
+                    self.report.num_filtered_query_events += 1
                     continue
                 self.report.num_query_events += 1
                 wu = self._create_operation_aspect_work_unit(event)
@@ -973,7 +1023,7 @@ class BigQueryUsageSource(Source):
             if event is None and missing_query_entry_v2 is None:
                 event = QueryEvent.from_entry_v2(entry)
                 if not self._is_table_allowed(event.destinationTable):
-                    self.report.num_filtered_events += 1
+                    self.report.num_filtered_query_events += 1
                     continue
                 self.report.num_query_events += 1
                 wu = self._create_operation_aspect_work_unit(event)
@@ -987,6 +1037,7 @@ class BigQueryUsageSource(Source):
                     f"Unable to parse {type(entry)} missing read {missing_query_entry}, missing query {missing_query_entry} missing v2 {missing_query_entry_v2} for {entry}",
                 )
             else:
+                logger.debug(f"Yielding {event} from log entries")
                 yield event
 
         logger.info(
@@ -1112,7 +1163,7 @@ class BigQueryUsageSource(Source):
                 logger.warning(f"Failed to process event {str(event.resource)}", e)
                 continue
 
-            if resource.is_temporary_table():
+            if resource.is_temporary_table(self.config.temp_table_dataset_prefix):
                 logger.debug(f"Dropping temporary table {resource}")
                 self.report.report_dropped(str(resource))
                 continue
