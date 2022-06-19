@@ -23,7 +23,7 @@ public class AuthenticationManager {
 
   }
 
-  public static void authenticateUser(@Nonnull String userName, @Nonnull String password) throws NamingException {
+  public static void authenticateJaasUser(@Nonnull String userName, @Nonnull String password) throws NamingException {
     Preconditions.checkArgument(!StringUtils.isAnyEmpty(userName), "Username cannot be empty");
     try {
       JAASLoginService jaasLoginService = new JAASLoginService("WHZ-Authentication");
@@ -55,6 +55,7 @@ public class AuthenticationManager {
       NameCallback nc = null;
       PasswordCallback pc = null;
       for (Callback callback : callbacks) {
+        Logger.error("The submitted callback is of type: " + callback.getClass() + " : " + callback);
         if (callback instanceof NameCallback) {
           nc = (NameCallback) callback;
           nc.setName(this.username);
