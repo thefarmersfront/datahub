@@ -1,7 +1,7 @@
 import { LineChartOutlined } from '@ant-design/icons';
 import * as React from 'react';
 import { Chart, EntityType, SearchResult } from '../../../types.generated';
-import { Entity, IconStyleType, PreviewType } from '../Entity';
+import { Entity, EntityCapabilityType, IconStyleType, PreviewType } from '../Entity';
 import { ChartPreview } from './preview/ChartPreview';
 import { GetChartQuery, useGetChartQuery, useUpdateChartMutation } from '../../../graphql/chart.generated';
 import { DocumentationTab } from '../shared/tabs/Documentation/DocumentationTab';
@@ -17,6 +17,7 @@ import { getDataForEntityType } from '../shared/containers/profile/utils';
 import { SidebarDomainSection } from '../shared/containers/profile/sidebar/Domain/SidebarDomainSection';
 import { EntityMenuItems } from '../shared/EntityDropdown/EntityDropdown';
 import { LineageTab } from '../shared/tabs/Lineage/LineageTab';
+import { ChartStatsSummarySubHeader } from './profile/stats/ChartStatsSummarySubHeader';
 
 /**
  * Definition of the DataHub Chart entity.
@@ -71,6 +72,9 @@ export class ChartEntity implements Entity<Chart> {
             useUpdateQuery={useUpdateChartMutation}
             getOverrideProperties={this.getOverridePropertiesFromEntity}
             headerDropdownItems={new Set([EntityMenuItems.COPY_URL, EntityMenuItems.UPDATE_DEPRECATION])}
+            subHeader={{
+                component: ChartStatsSummarySubHeader,
+            }}
             tabs={[
                 {
                     name: 'Documentation',
@@ -153,7 +157,7 @@ export class ChartEntity implements Entity<Chart> {
                 tags={data?.globalTags || undefined}
                 glossaryTerms={data?.glossaryTerms}
                 logoUrl={data?.platform?.properties?.logoUrl}
-                domain={data.domain}
+                domain={data.domain?.domain}
                 parentContainers={data.parentContainers}
             />
         );
@@ -174,7 +178,12 @@ export class ChartEntity implements Entity<Chart> {
                 glossaryTerms={data?.glossaryTerms}
                 insights={result.insights}
                 logoUrl={data?.platform?.properties?.logoUrl || ''}
-                domain={data.domain}
+                domain={data.domain?.domain}
+                deprecation={data.deprecation}
+                statsSummary={data.statsSummary}
+                lastUpdatedMs={data.properties?.lastModified?.time}
+                createdMs={data.properties?.created?.time}
+                externalUrl={data.properties?.externalUrl}
             />
         );
     };
@@ -185,7 +194,7 @@ export class ChartEntity implements Entity<Chart> {
             name: entity.properties?.name || '',
             type: EntityType.Chart,
             icon: entity?.platform?.properties?.logoUrl || '',
-            platform: entity?.platform.properties?.displayName || entity?.platform.name,
+            platform: entity?.platform,
         };
     };
 
@@ -199,5 +208,16 @@ export class ChartEntity implements Entity<Chart> {
             entityType: this.type,
             getOverrideProperties: this.getOverridePropertiesFromEntity,
         });
+    };
+
+    supportedCapabilities = () => {
+        return new Set([
+            EntityCapabilityType.OWNERS,
+            EntityCapabilityType.GLOSSARY_TERMS,
+            EntityCapabilityType.TAGS,
+            EntityCapabilityType.DOMAINS,
+            EntityCapabilityType.DEPRECATION,
+            EntityCapabilityType.SOFT_DELETE,
+        ]);
     };
 }

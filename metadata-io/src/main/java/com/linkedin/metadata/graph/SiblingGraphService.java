@@ -27,6 +27,12 @@ public class SiblingGraphService {
   private final EntityService _entityService;
   private final GraphService _graphService;
 
+  @Nonnull
+  public EntityLineageResult getLineage(@Nonnull Urn entityUrn, @Nonnull LineageDirection direction, int offset,
+      int count, int maxHops) {
+    return getLineage(entityUrn, direction, offset, count, maxHops, false);
+  }
+
   /**
    * Traverse from the entityUrn towards the input direction up to maxHops number of hops
    * Abstracts away the concept of relationship types
@@ -34,8 +40,12 @@ public class SiblingGraphService {
    * Unless overridden, it uses the lineage registry to fetch valid edge types and queries for them
    */
   @Nonnull
-  public EntityLineageResult getLineage(@Nonnull Urn entityUrn, @Nonnull LineageDirection direction, int offset,
-      int count, int maxHops) {
+  public EntityLineageResult getLineage(@Nonnull Urn entityUrn, @Nonnull LineageDirection direction,
+     int offset, int count, int maxHops, boolean separateSiblings) {
+    if (separateSiblings) {
+      return _graphService.getLineage(entityUrn, direction, offset, count, maxHops);
+    }
+
     if (maxHops > 1) {
       throw new UnsupportedOperationException(
           String.format("More than 1 hop is not supported for %s", this.getClass().getSimpleName()));
