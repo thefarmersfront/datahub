@@ -1,5 +1,6 @@
 # Defining environment
 ARG APP_ENV=prod
+ARG BUILDPLATFORM=linux/amd64
 
 FROM alpine:3.14 AS base
 ENV DOCKERIZE_VERSION v0.6.1
